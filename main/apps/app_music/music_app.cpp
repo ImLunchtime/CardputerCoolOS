@@ -75,10 +75,6 @@ void MusicApp::refreshMp3List()
     const char* root = "/sdcard";
     DIR* dir         = opendir(root);
     if (!dir) {
-        GetHAL().sdCardProbe();
-        dir = opendir(root);
-    }
-    if (!dir) {
         resetToRoot();
         return;
     }

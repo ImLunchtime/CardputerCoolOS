@@ -119,6 +119,10 @@ public:
     };
 
     SdCardProbeResult_t sdCardProbe();
+    bool isSdCardMounted() const
+    {
+        return _is_sd_card_mounted;
+    }
 
     /* ----------------------------------- Cap ---------------------------------- */
     CapLoRa868 capLora868;

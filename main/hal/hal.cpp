@@ -36,6 +36,7 @@ void Hal::init()
     keyboard_init();
     setting_init();
     spi_init();
+    sd_card_init();
 }
 
 void Hal::update()

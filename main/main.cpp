@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include <hal.h>
+#include <assets.h>
 #include <mooncake.h>
 #include <memory>
 #include <cstdio>
@@ -62,6 +63,14 @@ private:
         char buffer[16];
         std::snprintf(buffer, sizeof(buffer), "%u%%", level);
         bar.drawString(buffer, x + w + tip_w + 6, bar.height() / 2);
+
+        if (GetHAL().isSdCardMounted()) {
+            constexpr int icon_w = 16;
+            constexpr int icon_h = 16;
+            const int icon_x     = bar.width() - icon_w - 2;
+            const int icon_y     = (bar.height() - icon_h) / 2;
+            bar.drawPng(assets_sdcard_png_data(), assets_sdcard_png_size(), icon_x, icon_y);
+        }
 
         GetHAL().pushStatusBar();
     }

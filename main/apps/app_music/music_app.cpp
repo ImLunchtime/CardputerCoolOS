@@ -18,6 +18,9 @@ void MusicApp::onOpen()
     MusicPlayer::instance().init();
     resetToRoot();
     refreshMp3List();
+    _playing_path.clear();
+    _playback_started_for_path = false;
+    _last_volume = static_cast<int>(GetHAL().speaker.getVolume());
     hookKeyboard();
     draw();
 }
@@ -29,8 +32,21 @@ void MusicApp::onRunning()
     bool need_redraw = MusicPlayer::instance().consumeDirty() || (st_int != _last_player_state);
     _last_player_state = st_int;
 
-    if (st == MusicPlayerState::Idle && !_playing_path.empty()) {
+    if ((st == MusicPlayerState::Playing || st == MusicPlayerState::Paused) && !_playing_path.empty()) {
+        _playback_started_for_path = true;
+    }
+
+    {
+        const int vol = static_cast<int>(GetHAL().speaker.getVolume());
+        if (vol != _last_volume) {
+            _last_volume = vol;
+            need_redraw = true;
+        }
+    }
+
+    if (st == MusicPlayerState::Idle && !_playing_path.empty() && _playback_started_for_path) {
         _playing_path.clear();
+        _playback_started_for_path = false;
         need_redraw = true;
     }
 
@@ -61,6 +77,7 @@ void MusicApp::onClose()
     unhookKeyboard();
     MusicPlayer::instance().stop();
     _playing_path.clear();
+    _playback_started_for_path = false;
 }
 
 void MusicApp::refreshMp3List()
@@ -252,6 +269,7 @@ void MusicApp::hookKeyboard()
         if (e.keyCode == KEY_BACKSPACE || e.keyCode == KEY_DELETE) {
             MusicPlayer::instance().stop();
             _playing_path.clear();
+            _playback_started_for_path = false;
             draw();
             return;
         }
@@ -431,6 +449,23 @@ void MusicApp::draw()
         }
         canvas.clearClipRect();
         canvas.setTextDatum(textdatum_t::top_left);
+
+        const int vol_bar_y = box_y + box_h + 6;
+        const int vol_bar_h = 10;
+        if (vol_bar_y + vol_bar_h <= panel_y + panel_h - info_pad) {
+            canvas.drawRect(box_x, vol_bar_y, box_w, vol_bar_h, border_color);
+            canvas.fillRect(box_x + 1, vol_bar_y + 1, box_w - 2, vol_bar_h - 2, panel_bg);
+
+            const int vol = static_cast<int>(GetHAL().speaker.getVolume());
+            const int inner_w = box_w - 4;
+            int fill_w = (inner_w * vol) / 255;
+            if (fill_w < 0) fill_w = 0;
+            if (fill_w > inner_w) fill_w = inner_w;
+            if (fill_w > 0) {
+                const uint16_t fill_color = lgfx::color565(0x22, 0xC5, 0x5E);
+                canvas.fillRect(box_x + 2, vol_bar_y + 2, fill_w, vol_bar_h - 4, fill_color);
+            }
+        }
     }
 
     GetHAL().pushAppCanvas();
@@ -445,25 +480,20 @@ std::string MusicApp::getInfoPanelFileNameNoExt() const
         return s;
     };
 
-    if (!_playing_path.empty()) {
-        const auto it = std::find_if(_all_tracks.begin(), _all_tracks.end(), [&](const TrackInfo& t) { return t.path == _playing_path; });
-        if (it != _all_tracks.end()) {
-            return strip_ext(it->file_name);
-        }
+    if (_playing_path.empty()) {
+        return "";
     }
 
-    if (_view_stack.empty()) {
-        return "";
+    const auto it = std::find_if(_all_tracks.begin(), _all_tracks.end(), [&](const TrackInfo& t) { return t.path == _playing_path; });
+    if (it != _all_tracks.end()) {
+        return strip_ext(it->file_name);
     }
-    const auto& v = _view_stack.back();
-    if (!isCurrentItemTrack(v.selected_index)) {
-        return "";
+
+    const auto pos = _playing_path.find_last_of('/');
+    if (pos == std::string::npos || pos + 1 >= _playing_path.size()) {
+        return strip_ext(_playing_path);
     }
-    const int ti = getCurrentItemTrackIndex(v.selected_index);
-    if (ti < 0 || ti >= static_cast<int>(_all_tracks.size())) {
-        return "";
-    }
-    return strip_ext(_all_tracks[ti].file_name);
+    return strip_ext(_playing_path.substr(pos + 1));
 }
 
 void MusicApp::resetToRoot()
@@ -544,6 +574,7 @@ void MusicApp::activateSelection()
         } else {
             if (player.playFile(_all_tracks[ti].path)) {
                 _playing_path = _all_tracks[ti].path;
+                _playback_started_for_path = false;
             }
         }
         draw();

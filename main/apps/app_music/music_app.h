@@ -63,7 +63,9 @@ private:
 
     std::vector<ViewState> _view_stack;
     std::string _playing_path;
+    bool _playback_started_for_path = false;
     int _last_player_state = 0;
+    int _last_volume = -1;
     size_t _keyboard_slot_id = 0;
 
     std::string _panel_name_cache;

@@ -29,6 +29,13 @@ void Hal::init()
 
     M5.begin();
     M5.Display.setBrightness(0);
+    {
+        auto cfg = M5.Speaker.config();
+        if (cfg.dma_buf_len < 512) cfg.dma_buf_len = 512;
+        if (cfg.dma_buf_count < 16) cfg.dma_buf_count = 16;
+        if (cfg.task_priority < 4) cfg.task_priority = 4;
+        M5.Speaker.config(cfg);
+    }
     M5.Speaker.begin();  // Codec takes some time to initialize
 
     display_init();
@@ -675,7 +682,7 @@ void Hal::spi_init()
         .sclk_io_num     = HAL_PIN_SPI_SCLK,
         .quadwp_io_num   = -1,
         .quadhd_io_num   = -1,
-        .max_transfer_sz = 4000,
+        .max_transfer_sz = 16 * 1024,
     };
 
     // Initialize SPI bus only if not already initialized
@@ -724,6 +731,7 @@ void Hal::sd_card_init()
     esp_err_t ret;
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.max_freq_khz = 40000;
 
     // Options for mounting the filesystem
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {

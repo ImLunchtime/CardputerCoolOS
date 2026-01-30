@@ -38,7 +38,7 @@ enum class PlayerCmdType : uint8_t {
 
 struct PlayerCmd {
     PlayerCmdType type = PlayerCmdType::Stop;
-    char path[256]{};
+    char path[512]{};
 };
 
 static QueueHandle_t g_cmd_queue = nullptr;
@@ -75,15 +75,14 @@ static esp_err_t write_pcm(void* audio_buffer, size_t len, size_t* bytes_written
         vTaskDelay(1);
     }
 
-    bool ok = GetHAL().speaker.playRaw(
+    while (!GetHAL().speaker.playRaw(
         buf.data(),
         sample_count,
         w->sample_rate,
         w->stereo,
         1,
         w->speaker_channel,
-        false);
-    if (!ok) {
+        false)) {
         vTaskDelay(1);
     }
 
@@ -203,7 +202,7 @@ bool MusicPlayer::init()
     cfg.mute_fn = nullptr;
     cfg.clk_set_fn = clk_set;
     cfg.write_fn = nullptr;
-    cfg.priority = 5;
+    cfg.priority = 6;
     cfg.coreID = 1;
     cfg.force_stereo = true;
     cfg.write_fn2 = write_pcm;
@@ -219,7 +218,7 @@ bool MusicPlayer::init()
     GetHAL().speaker.setVolume(20);
     g_state_cache.store(audio_player_get_state());
 
-    g_cmd_queue = xQueueCreate(4, sizeof(PlayerCmd));
+    g_cmd_queue = xQueueCreate(8, sizeof(PlayerCmd));
     if (g_cmd_queue == nullptr) {
         g_inited.store(false);
         return false;
@@ -253,7 +252,7 @@ bool MusicPlayer::playFile(const std::string& path)
     PlayerCmd cmd{};
     cmd.type = PlayerCmdType::PlayFile;
     std::memcpy(cmd.path, path.c_str(), path.size() + 1);
-    return xQueueSend(g_cmd_queue, &cmd, 0) == pdTRUE;
+    return xQueueSend(g_cmd_queue, &cmd, pdMS_TO_TICKS(50)) == pdTRUE;
 }
 
 void MusicPlayer::togglePause()
@@ -263,7 +262,7 @@ void MusicPlayer::togglePause()
     }
     PlayerCmd cmd{};
     cmd.type = PlayerCmdType::TogglePause;
-    (void)xQueueSend(g_cmd_queue, &cmd, 0);
+    (void)xQueueSend(g_cmd_queue, &cmd, pdMS_TO_TICKS(50));
 }
 
 void MusicPlayer::stop()
@@ -273,7 +272,7 @@ void MusicPlayer::stop()
     }
     PlayerCmd cmd{};
     cmd.type = PlayerCmdType::Stop;
-    (void)xQueueSend(g_cmd_queue, &cmd, 0);
+    (void)xQueueSend(g_cmd_queue, &cmd, pdMS_TO_TICKS(50));
 }
 
 MusicPlayerState MusicPlayer::state() const

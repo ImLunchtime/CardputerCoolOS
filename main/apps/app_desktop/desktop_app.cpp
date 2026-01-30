@@ -28,9 +28,15 @@ void DesktopApp::refreshAppList()
     _apps.clear();
 
     auto& mc = mooncake::GetMooncake();
-    auto ids = mc.getAllAppIDs();
-    _apps.reserve(ids.size());
-    for (const auto id : ids) {
+    auto* app_mgr = mc.getAppAbilityManager();
+    const auto app_instances = app_mgr ? app_mgr->getAllAbilityInstance() : std::vector<mooncake::AbilityBase*>{};
+
+    _apps.reserve(app_instances.size());
+    for (auto* app : app_instances) {
+        if (app == nullptr) {
+            continue;
+        }
+        const int id = app->getId();
         if (id == getId()) {
             continue;
         }
@@ -38,7 +44,9 @@ void DesktopApp::refreshAppList()
         if (info.name.empty()) {
             continue;
         }
-        _apps.push_back({id, info.name});
+        _apps.emplace_back();
+        _apps.back().id = id;
+        _apps.back().name = info.name;
     }
 
     if (_apps.empty()) {

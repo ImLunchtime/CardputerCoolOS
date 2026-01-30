@@ -511,8 +511,14 @@ void MusicApp::navigateBackOrExit()
     }
 
     auto& mc = mooncake::GetMooncake();
-    const auto app_ids = mc.getAllAppIDs();
-    for (const int id : app_ids) {
+    auto* app_mgr = mc.getAppAbilityManager();
+    const auto app_instances = app_mgr ? app_mgr->getAllAbilityInstance() : std::vector<mooncake::AbilityBase*>{};
+
+    for (auto* app : app_instances) {
+        if (app == nullptr) {
+            continue;
+        }
+        const int id = app->getId();
         const auto info = mc.getAppInfo(id);
         if (info.name == "Desktop") {
             mc.openApp(id);

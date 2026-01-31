@@ -9,6 +9,7 @@
 #include <memory>
 #include <cstdio>
 #include <apps/app_desktop/desktop_app.h>
+#include <apps/app_audio_loopback/audio_loopback_app.h>
 #include <apps/app_music/music_app.h>
 #include <apps/app_pictures/pictures_app.h>
 
@@ -84,6 +85,7 @@ public:
     void init()
     {
         _desktop_app_id = _mooncake.installApp(std::make_unique<DesktopApp>());
+        _audio_loopback_app_id = _mooncake.installApp(std::make_unique<AudioLoopbackApp>());
         _music_app_id = _mooncake.installApp(std::make_unique<MusicApp>());
         _pictures_app_id = _mooncake.installApp(std::make_unique<PicturesApp>());
         _mooncake.openApp(_desktop_app_id);
@@ -97,6 +99,7 @@ public:
 private:
     mooncake::Mooncake& _mooncake;
     int _desktop_app_id = -1;
+    int _audio_loopback_app_id = -1;
     int _music_app_id = -1;
     int _pictures_app_id = -1;
 };

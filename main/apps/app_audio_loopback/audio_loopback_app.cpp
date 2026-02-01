@@ -11,6 +11,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/ringbuf.h"
 
 #include <driver/i2s_std.h>
 #include <esp_err.h>
@@ -28,7 +29,7 @@ constexpr gpio_num_t kI2SDout = GPIO_NUM_42;
 constexpr gpio_num_t kI2SDin  = GPIO_NUM_46;
 
 constexpr uint32_t kSampleRate = 16000;
-constexpr size_t kChunkFrames = 480;
+constexpr size_t kChunkFrames = 128;
 
 }  // namespace
 
@@ -69,21 +70,21 @@ void AudioLoopbackApp::loopbackTaskMain(void* arg)
         return;
     }
 
-    mclog::tagInfo(kTag, "loopback task start");
+    mclog::tagInfo(kTag, "loopback read task start");
     uint8_t last_vol = 0xFF;
     static int16_t buf[kChunkFrames * 2];
+    auto* rb = static_cast<RingbufHandle_t>(app->_ring_buffer_handle);
+
     while (app->_task_running.load()) {
-        auto* tx = static_cast<i2s_chan_handle_t>(app->_i2s_tx_handle);
         auto* rx = static_cast<i2s_chan_handle_t>(app->_i2s_rx_handle);
-        if (tx == nullptr || rx == nullptr) {
+        if (rx == nullptr || rb == nullptr) {
             vTaskDelay(10 / portTICK_PERIOD_MS);
             continue;
         }
 
         size_t bytes_read = 0;
-        esp_err_t rr = i2s_channel_read(rx, buf, sizeof(buf), &bytes_read, 20 / portTICK_PERIOD_MS);
+        esp_err_t rr = i2s_channel_read(rx, buf, sizeof(buf), &bytes_read, 100 / portTICK_PERIOD_MS);
         if (rr != ESP_OK || bytes_read == 0) {
-            vTaskDelay(1);
             continue;
         }
 
@@ -119,13 +120,46 @@ void AudioLoopbackApp::loopbackTaskMain(void* arg)
             }
         }
 
-        size_t bytes_written = 0;
-        const size_t bytes_to_write = frames * sizeof(int16_t) * 2;
-        i2s_channel_write(tx, buf, bytes_to_write, &bytes_written, 20 / portTICK_PERIOD_MS);
+        if (xRingbufferSend(rb, buf, bytes_read, 0) != pdTRUE) {
+            // buffer full, maybe drop or overwrite? 
+            // For now just drop to keep latest data flow
+        }
     }
 
-    mclog::tagInfo(kTag, "loopback task stop");
+    mclog::tagInfo(kTag, "loopback read task stop");
     app->_task_handle = nullptr;
+    vTaskDelete(nullptr);
+}
+
+void AudioLoopbackApp::writeTaskMain(void* arg)
+{
+    auto* app = static_cast<AudioLoopbackApp*>(arg);
+    if (app == nullptr) {
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    mclog::tagInfo(kTag, "loopback write task start");
+    auto* rb = static_cast<RingbufHandle_t>(app->_ring_buffer_handle);
+
+    while (app->_task_running.load()) {
+        auto* tx = static_cast<i2s_chan_handle_t>(app->_i2s_tx_handle);
+        if (tx == nullptr || rb == nullptr) {
+            vTaskDelay(10 / portTICK_PERIOD_MS);
+            continue;
+        }
+
+        size_t size = 0;
+        void* data = xRingbufferReceive(rb, &size, 100 / portTICK_PERIOD_MS);
+        if (data != nullptr && size > 0) {
+            size_t bytes_written = 0;
+            i2s_channel_write(tx, data, size, &bytes_written, 100 / portTICK_PERIOD_MS);
+            vRingbufferReturnItem(rb, data);
+        }
+    }
+
+    mclog::tagInfo(kTag, "loopback write task stop");
+    app->_write_task_handle = nullptr;
     vTaskDelete(nullptr);
 }
 
@@ -158,32 +192,71 @@ void AudioLoopbackApp::startLoopbackTask()
         return;
     }
 
+    // 4KB ring buffer (approx 60ms at 16kHz stereo 16bit)
+    _ring_buffer_handle = xRingbufferCreate(4 * 1024, RINGBUF_TYPE_BYTEBUF);
+    if (_ring_buffer_handle == nullptr) {
+        mclog::tagError(kTag, "create ring buffer failed");
+        return;
+    }
+
     _task_running.store(true);
-    TaskHandle_t handle = nullptr;
-    BaseType_t ok = xTaskCreatePinnedToCore(
+    
+    // Create Read Task (Producer)
+    TaskHandle_t read_handle = nullptr;
+    BaseType_t ok_read = xTaskCreatePinnedToCore(
         AudioLoopbackApp::loopbackTaskMain,
-        "audio_loopback",
+        "loop_read",
         8192,
         this,
         4,
-        &handle,
+        &read_handle,
         1);
-    if (ok != pdPASS) {
+
+    if (ok_read != pdPASS) {
+        mclog::tagError(kTag, "create read task failed");
         _task_running.store(false);
-        _task_handle = nullptr;
+        vRingbufferDelete(static_cast<RingbufHandle_t>(_ring_buffer_handle));
+        _ring_buffer_handle = nullptr;
         return;
     }
-    _task_handle = handle;
+    _task_handle = read_handle;
+
+    // Create Write Task (Consumer)
+    TaskHandle_t write_handle = nullptr;
+    BaseType_t ok_write = xTaskCreatePinnedToCore(
+        AudioLoopbackApp::writeTaskMain,
+        "loop_write",
+        8192,
+        this,
+        4,
+        &write_handle,
+        1);
+
+    if (ok_write != pdPASS) {
+        mclog::tagError(kTag, "create write task failed");
+        // Clean up read task (it will stop because _task_running is set to false, but we should be careful)
+        _task_running.store(false);
+        // We rely on stopLoopbackTask logic or manual cleanup, but here just set null
+        // Read task will exit soon
+        _write_task_handle = nullptr; 
+        return;
+    }
+    _write_task_handle = write_handle;
 }
 
 void AudioLoopbackApp::stopLoopbackTask()
 {
-    if (_task_handle == nullptr) {
-        return;
+    _task_running.store(false);
+    
+    // Wait for tasks to stop
+    while (_task_handle != nullptr || _write_task_handle != nullptr) {
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 
-    _task_running.store(false);
-    while (_task_handle != nullptr) vTaskDelay(1);
+    if (_ring_buffer_handle != nullptr) {
+        vRingbufferDelete(static_cast<RingbufHandle_t>(_ring_buffer_handle));
+        _ring_buffer_handle = nullptr;
+    }
 }
 
 bool AudioLoopbackApp::initLoopbackEngine()
@@ -271,8 +344,8 @@ bool AudioLoopbackApp::initLoopbackEngine()
     }
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(kI2SPort, I2S_ROLE_MASTER);
-    chan_cfg.dma_desc_num = 16;
-    chan_cfg.dma_frame_num = 512;
+    chan_cfg.dma_desc_num = 4;
+    chan_cfg.dma_frame_num = 128;
     chan_cfg.auto_clear = true;
 
     i2s_chan_handle_t tx_handle = nullptr;

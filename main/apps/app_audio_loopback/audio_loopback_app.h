@@ -35,8 +35,12 @@ private:
     bool _prev_volume_valid = false;
 
     void* _task_handle = nullptr;
+    void* _write_task_handle = nullptr;
+    void* _ring_buffer_handle = nullptr;
     std::atomic<bool> _task_running{false};
 
     void* _i2s_tx_handle = nullptr;
     void* _i2s_rx_handle = nullptr;
+private:
+    static void writeTaskMain(void* arg);
 };

@@ -287,6 +287,20 @@ void MusicApp::hookKeyboard()
         const auto is_down = [](KeScanCode_t code) {
             return code == KEY_DOWN || code == KEY_S || code == KEY_J || code == KEY_DOT;
         };
+        const auto is_left = [](KeScanCode_t code) {
+            return code == KEY_LEFT || code == KEY_A || code == KEY_H || code == KEY_COMMA;
+        };
+        const auto is_right = [](KeScanCode_t code) {
+            return code == KEY_RIGHT || code == KEY_D || code == KEY_L || code == KEY_SLASH;
+        };
+
+        if (is_left(e.keyCode) || is_right(e.keyCode)) {
+            const auto st = MusicPlayer::instance().state();
+            if ((st == MusicPlayerState::Playing || st == MusicPlayerState::Paused) && !_playing_path.empty()) {
+                MusicPlayer::instance().seekBySeconds(is_right(e.keyCode) ? 5 : -5);
+                return;
+            }
+        }
 
         if (is_up(e.keyCode) || is_down(e.keyCode)) {
             auto& canvas = GetHAL().canvas;

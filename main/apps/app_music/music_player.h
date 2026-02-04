@@ -16,6 +16,7 @@ public:
     bool playFile(const std::string& path);
     void togglePause();
     void stop();
+    void seekBySeconds(int delta_seconds);
 
     MusicPlayerState state() const;
     bool consumeDirty();
@@ -23,4 +24,3 @@ public:
 private:
     MusicPlayer() = default;
 };
-

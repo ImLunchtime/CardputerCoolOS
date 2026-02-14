@@ -45,6 +45,7 @@ void AudioLoopbackApp::onOpen()
     _prev_volume_valid = true;
 
     _volume.store(0);
+    _delay_ms.store(0);
     _loopback_enabled.store(false);
     _needs_redraw = true;
 
@@ -141,11 +142,35 @@ void AudioLoopbackApp::writeTaskMain(void* arg)
 
     mclog::tagInfo(kTag, "loopback write task start");
     auto* rb = static_cast<RingbufHandle_t>(app->_ring_buffer_handle);
+    static const uint8_t zeros[512] = {0}; 
 
     while (app->_task_running.load()) {
         auto* tx = static_cast<i2s_chan_handle_t>(app->_i2s_tx_handle);
         if (tx == nullptr || rb == nullptr) {
             vTaskDelay(10 / portTICK_PERIOD_MS);
+            continue;
+        }
+
+        const int delay_ms = app->_delay_ms.load();
+        const size_t target_delay_bytes = delay_ms * 64; // 16kHz * 4 bytes/sample * ms
+        const size_t total_size = 80 * 1024;
+        const size_t free_size = xRingbufferGetCurFreeSize(rb);
+        const size_t used_size = total_size - free_size;
+
+        // If buffer has less data than target delay, write silence to wait
+        if (used_size < target_delay_bytes) {
+            size_t bytes_written = 0;
+            i2s_channel_write(tx, zeros, sizeof(zeros), &bytes_written, 100 / portTICK_PERIOD_MS);
+            continue;
+        }
+
+        // If buffer has too much data (lag > target + 100ms), drop data to catch up
+        if (used_size > target_delay_bytes + 6400) {
+            size_t size = 0;
+            void* data = xRingbufferReceive(rb, &size, 0);
+            if (data) {
+                vRingbufferReturnItem(rb, data);
+            }
             continue;
         }
 
@@ -192,8 +217,8 @@ void AudioLoopbackApp::startLoopbackTask()
         return;
     }
 
-    // 4KB ring buffer (approx 60ms at 16kHz stereo 16bit)
-    _ring_buffer_handle = xRingbufferCreate(4 * 1024, RINGBUF_TYPE_BYTEBUF);
+    // 80KB ring buffer (approx 1250ms at 16kHz stereo 16bit)
+    _ring_buffer_handle = xRingbufferCreate(80 * 1024, RINGBUF_TYPE_BYTEBUF);
     if (_ring_buffer_handle == nullptr) {
         mclog::tagError(kTag, "create ring buffer failed");
         return;
@@ -462,6 +487,21 @@ void AudioLoopbackApp::hookKeyboard()
             return;
         }
 
+        if (e.keyCode == KEY_LEFTBRACE || e.keyCode == KEY_RIGHTBRACE) {
+            int d = _delay_ms.load();
+            const int step = 50;
+            if (e.keyCode == KEY_LEFTBRACE) {
+                d -= step;
+            } else {
+                d += step;
+            }
+            if (d < 0) d = 0;
+            if (d > kMaxDelayMs) d = kMaxDelayMs;
+            _delay_ms.store(d);
+            _needs_redraw = true;
+            return;
+        }
+
         if (e.keyCode == KEY_MINUS || e.keyCode == KEY_EQUAL) {
             int v = static_cast<int>(_volume.load());
             const int step = 5;
@@ -529,11 +569,11 @@ void AudioLoopbackApp::draw()
     canvas.setTextColor(fg);
 
     char volbuf[32];
-    std::snprintf(volbuf, sizeof(volbuf), "Vol:%u", static_cast<unsigned>(_volume.load()));
+    std::snprintf(volbuf, sizeof(volbuf), "Vol:%u  Delay:%dms", static_cast<unsigned>(_volume.load()), _delay_ms.load());
     canvas.drawString(volbuf, 6, 28);
 
     canvas.drawString("Ent/Spc:Toggle  +/-:Vol", 6, 42);
-    canvas.drawString("Bksp:Exit", 6, 56);
+    canvas.drawString("[ ]:Delay  Bksp:Exit", 6, 56);
 
     GetHAL().pushCanvas();
 }

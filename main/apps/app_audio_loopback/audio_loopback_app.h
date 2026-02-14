@@ -30,6 +30,9 @@ private:
 
     std::atomic<bool> _loopback_enabled{false};
     std::atomic<uint8_t> _volume{0};
+    std::atomic<int> _delay_ms{0};
+
+    static constexpr int kMaxDelayMs = 1000;
 
     uint8_t _prev_volume = 0;
     bool _prev_volume_valid = false;

@@ -13,6 +13,7 @@
 #include <apps/app_audio_loopback/audio_loopback_app.h>
 #include <apps/app_music/music_app.h>
 #include <apps/app_pictures/pictures_app.h>
+#include <apps/app_circuit_board/circuit_board_app.h>
 
 class StatusBarService {
 public:
@@ -89,6 +90,7 @@ public:
         _audio_loopback_app_id = _mooncake.installApp(std::make_unique<AudioLoopbackApp>());
         _music_app_id = _mooncake.installApp(std::make_unique<MusicApp>());
         _pictures_app_id = _mooncake.installApp(std::make_unique<PicturesApp>());
+        _circuit_board_app_id = _mooncake.installApp(std::make_unique<CircuitBoardApp>());
         _mooncake.openApp(_desktop_app_id);
     }
 
@@ -103,6 +105,7 @@ private:
     int _audio_loopback_app_id = -1;
     int _music_app_id = -1;
     int _pictures_app_id = -1;
+    int _circuit_board_app_id = -1;
 };
 
 static AppSystem g_app_system;

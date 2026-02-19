@@ -17,7 +17,7 @@ set(MY_INCLUDE_DIRS
     "./apps"
 )
 
-file(GLOB EXTERN_FILES assets/*)
+file(GLOB_RECURSE EXTERN_FILES assets/*)
 
 idf_component_register(SRCS "main.cpp" ${MY_SRCS}
                     INCLUDE_DIRS ${MY_INCLUDE_DIRS}

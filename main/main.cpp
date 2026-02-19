@@ -8,6 +8,7 @@
 #include <mooncake.h>
 #include <memory>
 #include <cstdio>
+#include <smooth_ui_toolkit.h>
 #include <apps/app_desktop/desktop_app.h>
 #include <apps/app_audio_loopback/audio_loopback_app.h>
 #include <apps/app_music/music_app.h>
@@ -110,6 +111,10 @@ static StatusBarService g_status_bar;
 extern "C" void app_main(void)
 {
     GetHAL().init();
+
+    smooth_ui_toolkit::ui_hal::on_get_tick([] {
+        return GetHAL().millis();
+    });
 
     GetHAL().display.setBrightness(128);
     g_app_system.init();

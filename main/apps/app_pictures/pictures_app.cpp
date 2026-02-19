@@ -15,7 +15,8 @@ void PicturesApp::onOpen()
 {
     _mode = Mode::Browse;
     _dir_stack.clear();
-    _dir_stack.push_back(FolderState{"/sdcard", {}, 0, 0});
+    _dir_stack.emplace_back();
+    _dir_stack.back().dir_path = "/sdcard";
     _view_entry_index = -1;
     resetViewTransform();
     refreshCurrentDir();
@@ -25,6 +26,13 @@ void PicturesApp::onOpen()
 
 void PicturesApp::onRunning()
 {
+    if (_mode == Mode::Browse && !_dir_stack.empty()) {
+        auto& st = _dir_stack.back();
+        st.list.update(GetHAL().millis());
+        if (st.list.isAnimating()) {
+            draw();
+        }
+    }
 }
 
 void PicturesApp::onClose()
@@ -212,11 +220,6 @@ void PicturesApp::drawBrowse()
         return;
     }
 
-    SimpleListState s{st.selected_index, st.scroll_offset};
-    SimpleList::clamp(s, item_count);
-    st.selected_index = s.selected_index;
-    st.scroll_offset = s.scroll_offset;
-
     SimpleListStyle style;
     style.bg_color = bg;
     style.text_color = TFT_WHITE;
@@ -229,13 +232,12 @@ void PicturesApp::drawBrowse()
     const int list_w = canvas.width() - pad * 2;
     const int list_h = canvas.height() - list_y - pad;
 
-    SimpleList::draw(
+    st.list.draw(
         canvas,
         list_x,
         list_y,
         list_w,
         list_h,
-        s,
         item_count,
         [&st](int idx) {
             if (idx < 0 || idx >= static_cast<int>(st.entries.size())) {
@@ -315,15 +317,13 @@ void PicturesApp::refreshCurrentDir()
     st.entries.clear();
 
     if (!GetHAL().isSdCardMounted()) {
-        st.selected_index = 0;
-        st.scroll_offset = 0;
+        st.list.jumpTo(0, 0, 1);
         return;
     }
 
     DIR* dir = opendir(st.dir_path.c_str());
     if (!dir) {
-        st.selected_index = 0;
-        st.scroll_offset = 0;
+        st.list.jumpTo(0, 0, 1);
         return;
     }
 
@@ -369,14 +369,21 @@ void PicturesApp::refreshCurrentDir()
 
     const int item_count = static_cast<int>(st.entries.size());
     if (item_count <= 0) {
-        st.selected_index = 0;
-        st.scroll_offset = 0;
+        st.list.jumpTo(0, 0, 1);
         return;
     }
-    if (st.selected_index < 0) st.selected_index = 0;
-    if (st.selected_index >= item_count) st.selected_index = item_count - 1;
-    if (st.scroll_offset < 0) st.scroll_offset = 0;
-    if (st.scroll_offset > st.selected_index) st.scroll_offset = st.selected_index;
+
+    auto& canvas = GetHAL().canvas;
+    canvas.setFont(&fonts::efontCN_12);
+    const int pad = 4;
+    const int header_h = canvas.fontHeight() + 4;
+    const int list_h = canvas.height() - header_h - pad * 2;
+    const int row_h = SimpleList::rowHeight(canvas);
+    const int visible_rows = SimpleList::visibleRows(list_h, row_h);
+
+    int idx = st.list.getSelectedIndex();
+    if (idx >= item_count) idx = item_count - 1;
+    st.list.jumpTo(idx, item_count, visible_rows);
 
     if (_mode == Mode::View) {
         if (_view_entry_index < 0 || _view_entry_index >= item_count || st.entries[_view_entry_index].is_dir) {
@@ -397,18 +404,20 @@ void PicturesApp::enterSelected()
         return;
     }
 
-    if (st.selected_index < 0) st.selected_index = 0;
-    if (st.selected_index >= static_cast<int>(st.entries.size())) st.selected_index = static_cast<int>(st.entries.size()) - 1;
+    int idx = st.list.getSelectedIndex();
+    if (idx < 0) idx = 0;
+    if (idx >= static_cast<int>(st.entries.size())) idx = static_cast<int>(st.entries.size()) - 1;
 
-    const auto& e = st.entries[st.selected_index];
+    const auto& e = st.entries[idx];
     if (e.is_dir) {
-        _dir_stack.push_back(FolderState{e.path, {}, 0, 0});
+        _dir_stack.emplace_back();
+        _dir_stack.back().dir_path = e.path;
         refreshCurrentDir();
         draw();
         return;
     }
 
-    openImageAtEntryIndex(st.selected_index);
+    openImageAtEntryIndex(idx);
     draw();
 }
 
@@ -479,10 +488,8 @@ void PicturesApp::moveSelection(int delta, int visible_rows)
         return;
     }
     auto& st = _dir_stack.back();
-    SimpleListState s{st.selected_index, st.scroll_offset};
-    SimpleList::move(s, delta, static_cast<int>(st.entries.size()), visible_rows);
-    st.selected_index = s.selected_index;
-    st.scroll_offset = s.scroll_offset;
+    int idx = st.list.getSelectedIndex();
+    st.list.go(idx + delta, static_cast<int>(st.entries.size()), visible_rows);
 }
 
 void PicturesApp::stepImage(int delta)
@@ -497,7 +504,17 @@ void PicturesApp::stepImage(int delta)
     const int next = findNextImageEntryIndex(_view_entry_index, delta);
     if (next >= 0) {
         _view_entry_index = next;
-        _dir_stack.back().selected_index = next;
+        
+        // Calculate visible rows for jumpTo
+        auto& canvas = GetHAL().canvas;
+        canvas.setFont(&fonts::efontCN_12);
+        const int pad = 4;
+        const int header_h = canvas.fontHeight() + 4;
+        const int list_h = canvas.height() - header_h - pad * 2;
+        const int row_h = SimpleList::rowHeight(canvas);
+        const int visible_rows = SimpleList::visibleRows(list_h, row_h);
+
+        _dir_stack.back().list.jumpTo(next, static_cast<int>(_dir_stack.back().entries.size()), visible_rows);
         resetViewTransform();
     }
 }

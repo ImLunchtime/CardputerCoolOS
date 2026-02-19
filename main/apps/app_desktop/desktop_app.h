@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include "utils/ui/simple_list.h"
 
 class DesktopApp : public mooncake::AppAbility {
 public:
@@ -24,7 +25,6 @@ private:
     void unhookKeyboard();
 
     std::vector<AppEntry> _apps;
-    int _selected_index = 0;
-    int _scroll_offset  = 0;
+    SmoothSimpleList _list;
     size_t _keyboard_slot_id = 0;
 };

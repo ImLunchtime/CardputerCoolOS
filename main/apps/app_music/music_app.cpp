@@ -67,6 +67,13 @@ void MusicApp::onRunning()
         }
     }
 
+    if (!_view_stack.empty()) {
+        _view_stack.back().list.update(GetHAL().millis());
+        if (_view_stack.back().list.isAnimating()) {
+            need_redraw = true;
+        }
+    }
+
     if (need_redraw) {
         draw();
     }
@@ -221,13 +228,19 @@ void MusicApp::refreshMp3List()
         const int count = getCurrentItemCount();
         auto& v = _view_stack.back();
         if (count <= 0) {
-            v.selected_index = 0;
-            v.scroll_offset = 0;
+            v.list.jumpTo(0, 0, 1);
         } else {
-            if (v.selected_index < 0) v.selected_index = 0;
-            if (v.selected_index >= count) v.selected_index = count - 1;
-            if (v.scroll_offset < 0) v.scroll_offset = 0;
-            if (v.scroll_offset > v.selected_index) v.scroll_offset = v.selected_index;
+            int idx = v.list.getSelectedIndex();
+            if (idx >= count) idx = count - 1;
+            
+            auto& canvas = GetHAL().canvas;
+            canvas.setFont(&fonts::efontCN_12);
+            const int pad = 4;
+            const int list_h = canvas.height() - pad * 2;
+            const int row_h = canvas.fontHeight() + 4;
+            const int visible_row = list_h / row_h;
+            
+            v.list.jumpTo(idx, count, visible_row);
         }
     }
 }
@@ -373,13 +386,6 @@ void MusicApp::draw()
         return;
     }
 
-    SimpleListState list_state;
-    list_state.selected_index = _view_stack.back().selected_index;
-    list_state.scroll_offset = _view_stack.back().scroll_offset;
-    SimpleList::clamp(list_state, item_count);
-    _view_stack.back().selected_index = list_state.selected_index;
-    _view_stack.back().scroll_offset = list_state.scroll_offset;
-
     SimpleListStyle style;
     style.bg_color = bg_color;
     style.text_color = TFT_WHITE;
@@ -387,13 +393,12 @@ void MusicApp::draw()
     style.selected_text_color = TFT_BLACK;
     style.padding_x = 2;
 
-    SimpleList::draw(
+    _view_stack.back().list.draw(
         canvas,
         list_x,
         list_y,
         list_w,
         list_h,
-        list_state,
         item_count,
         [this](int idx) {
             std::string label = getCurrentItemLabel(idx);
@@ -513,7 +518,8 @@ std::string MusicApp::getInfoPanelFileNameNoExt() const
 void MusicApp::resetToRoot()
 {
     _view_stack.clear();
-    _view_stack.push_back(ViewState{ViewKind::Root, "", 0, 0});
+    _view_stack.emplace_back();
+    _view_stack.back().kind = ViewKind::Root;
 }
 
 void MusicApp::navigateBackOrExit()
@@ -552,39 +558,48 @@ void MusicApp::activateSelection()
     if (count <= 0) {
         return;
     }
-    if (v.selected_index < 0) v.selected_index = 0;
-    if (v.selected_index >= count) v.selected_index = count - 1;
+    
+    int idx = v.list.getSelectedIndex();
+    if (idx < 0) idx = 0;
+    if (idx >= count) idx = count - 1;
 
     if (v.kind == ViewKind::Root) {
-        if (v.selected_index == 0) {
-            _view_stack.push_back(ViewState{ViewKind::Albums, "", 0, 0});
-        } else if (v.selected_index == 1) {
-            _view_stack.push_back(ViewState{ViewKind::Artists, "", 0, 0});
+        if (idx == 0) {
+            _view_stack.emplace_back();
+            _view_stack.back().kind = ViewKind::Albums;
+        } else if (idx == 1) {
+            _view_stack.emplace_back();
+            _view_stack.back().kind = ViewKind::Artists;
         } else {
-            _view_stack.push_back(ViewState{ViewKind::Uncategorized, "", 0, 0});
+            _view_stack.emplace_back();
+            _view_stack.back().kind = ViewKind::Uncategorized;
         }
         draw();
         return;
     }
 
     if (v.kind == ViewKind::Albums) {
-        if (v.selected_index >= 0 && v.selected_index < static_cast<int>(_album_keys.size())) {
-            _view_stack.push_back(ViewState{ViewKind::AlbumTracks, _album_keys[v.selected_index], 0, 0});
+        if (idx >= 0 && idx < static_cast<int>(_album_keys.size())) {
+            _view_stack.emplace_back();
+            _view_stack.back().kind = ViewKind::AlbumTracks;
+            _view_stack.back().key = _album_keys[idx];
             draw();
         }
         return;
     }
 
     if (v.kind == ViewKind::Artists) {
-        if (v.selected_index >= 0 && v.selected_index < static_cast<int>(_artist_keys.size())) {
-            _view_stack.push_back(ViewState{ViewKind::ArtistTracks, _artist_keys[v.selected_index], 0, 0});
+        if (idx >= 0 && idx < static_cast<int>(_artist_keys.size())) {
+            _view_stack.emplace_back();
+            _view_stack.back().kind = ViewKind::ArtistTracks;
+            _view_stack.back().key = _artist_keys[idx];
             draw();
         }
         return;
     }
 
-    if (isCurrentItemTrack(v.selected_index)) {
-        const int ti = getCurrentItemTrackIndex(v.selected_index);
+    if (isCurrentItemTrack(idx)) {
+        const int ti = getCurrentItemTrackIndex(idx);
         if (ti < 0 || ti >= static_cast<int>(_all_tracks.size())) {
             return;
         }
@@ -609,10 +624,8 @@ void MusicApp::moveSelection(int delta, int visible_rows)
     }
     auto& v = _view_stack.back();
     const int count = getCurrentItemCount();
-    SimpleListState s{v.selected_index, v.scroll_offset};
-    SimpleList::move(s, delta, count, visible_rows);
-    v.selected_index = s.selected_index;
-    v.scroll_offset = s.scroll_offset;
+    int idx = v.list.getSelectedIndex();
+    v.list.go(idx + delta, count, visible_rows);
 }
 
 int MusicApp::getCurrentItemCount() const

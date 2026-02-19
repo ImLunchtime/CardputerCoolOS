@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include "utils/ui/simple_list.h"
 
 class PicturesApp : public mooncake::AppAbility {
 public:
@@ -27,8 +28,7 @@ private:
     struct FolderState {
         std::string dir_path;
         std::vector<Entry> entries;
-        int selected_index = 0;
-        int scroll_offset = 0;
+        SmoothSimpleList list;
     };
 
     void draw();

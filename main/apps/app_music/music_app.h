@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include "utils/ui/simple_list.h"
 
 class MusicApp : public mooncake::AppAbility {
 public:
@@ -35,8 +36,7 @@ private:
     struct ViewState {
         ViewKind kind = ViewKind::Root;
         std::string key;
-        int selected_index = 0;
-        int scroll_offset = 0;
+        SmoothSimpleList list;
     };
 
     void draw();

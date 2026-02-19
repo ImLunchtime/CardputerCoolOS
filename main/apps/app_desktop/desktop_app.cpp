@@ -1,6 +1,5 @@
 #include "desktop_app.h"
 #include <hal.h>
-#include "utils/ui/simple_list.h"
 
 DesktopApp::DesktopApp()
 {
@@ -16,6 +15,10 @@ void DesktopApp::onOpen()
 
 void DesktopApp::onRunning()
 {
+    _list.update(GetHAL().millis());
+    if (_list.isAnimating()) {
+        draw();
+    }
 }
 
 void DesktopApp::onClose()
@@ -50,23 +53,21 @@ void DesktopApp::refreshAppList()
     }
 
     if (_apps.empty()) {
-        _selected_index = 0;
-        _scroll_offset  = 0;
+        _list.jumpTo(0, 0, 1);
         return;
     }
 
-    if (_selected_index < 0) {
-        _selected_index = 0;
+    auto& canvas = GetHAL().canvas;
+    canvas.setFont(&fonts::efontCN_12);
+    const int list_h = 108;
+    const int row_h = SimpleList::rowHeight(canvas);
+    const int visible_rows = SimpleList::visibleRows(list_h, row_h);
+
+    int idx = _list.getSelectedIndex();
+    if (idx >= static_cast<int>(_apps.size())) {
+        idx = static_cast<int>(_apps.size()) - 1;
     }
-    if (_selected_index >= static_cast<int>(_apps.size())) {
-        _selected_index = static_cast<int>(_apps.size()) - 1;
-    }
-    if (_scroll_offset < 0) {
-        _scroll_offset = 0;
-    }
-    if (_scroll_offset > _selected_index) {
-        _scroll_offset = _selected_index;
-    }
+    _list.jumpTo(idx, static_cast<int>(_apps.size()), visible_rows);
 }
 
 void DesktopApp::hookKeyboard()
@@ -95,19 +96,13 @@ void DesktopApp::hookKeyboard()
         };
 
         if (is_up(e.keyCode)) {
-            SimpleListState s{_selected_index, _scroll_offset};
-            SimpleList::move(s, -1, static_cast<int>(_apps.size()), visible_row);
-            _selected_index = s.selected_index;
-            _scroll_offset = s.scroll_offset;
+            _list.go(_list.getSelectedIndex() - 1, static_cast<int>(_apps.size()), visible_row);
             draw();
             return;
         }
 
         if (is_down(e.keyCode)) {
-            SimpleListState s{_selected_index, _scroll_offset};
-            SimpleList::move(s, 1, static_cast<int>(_apps.size()), visible_row);
-            _selected_index = s.selected_index;
-            _scroll_offset = s.scroll_offset;
+            _list.go(_list.getSelectedIndex() + 1, static_cast<int>(_apps.size()), visible_row);
             draw();
             return;
         }
@@ -116,7 +111,7 @@ void DesktopApp::hookKeyboard()
             if (_apps.empty()) {
                 return;
             }
-            const int target_id = _apps[_selected_index].id;
+            const int target_id = _apps[_list.getSelectedIndex()].id;
             auto& mc            = mooncake::GetMooncake();
             mc.openApp(target_id);
             mc.closeApp(getId());
@@ -156,11 +151,6 @@ void DesktopApp::draw()
     canvas.setTextSize(1);
     canvas.setTextDatum(textdatum_t::middle_left);
 
-    SimpleListState s{_selected_index, _scroll_offset};
-    SimpleList::clamp(s, static_cast<int>(_apps.size()));
-    _selected_index = s.selected_index;
-    _scroll_offset = s.scroll_offset;
-
     SimpleListStyle style;
     style.bg_color = bg_color;
     style.text_color = TFT_WHITE;
@@ -168,13 +158,12 @@ void DesktopApp::draw()
     style.selected_text_color = TFT_BLACK;
     style.padding_x = 2;
 
-    SimpleList::draw(
+    _list.draw(
         canvas,
         list_x,
         list_y,
         list_w,
         list_h,
-        s,
         static_cast<int>(_apps.size()),
         [this](int idx) { return _apps[idx].name; },
         style);
